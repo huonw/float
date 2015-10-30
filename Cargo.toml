@@ -10,3 +10,6 @@ ramp = { git = "https://github.com/Aatch/ramp" }
 [dev-dependencies]
 quickcheck = "0.2.24"
 quickcheck_macros = "0.2.24"
+
+[features]
+unstable = []
