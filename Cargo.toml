@@ -1,0 +1,12 @@
+[package]
+authors = ["Huon Wilson <dbau.pp+github@gmail.com>"]
+name = "float"
+version = "0.1.0"
+
+[dependencies]
+ieee754 = "0.2.0"
+ramp = { git = "https://github.com/Aatch/ramp" }
+
+[dev-dependencies]
+quickcheck = "0.2.24"
+quickcheck_macros = "0.2.24"
