@@ -1,5 +1,7 @@
 # Arbitrary precision floats
 
+[![Build Status](https://travis-ci.org/huonw/float.svg?branch=master)](https://travis-ci.org/huonw/float) [![Coverage Status](https://coveralls.io/repos/huonw/float/badge.svg?branch=master&service=github)](https://coveralls.io/github/huonw/float?branch=master)
+
 The `Float` type is an arbitrary precision float. It supports
 correctly rounded computation of arithmetic (`+`, `-`, `*`, `/`),
 square roots and precision conversions. It makes no claims to high
