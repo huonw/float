@@ -9,13 +9,14 @@ use float::Float;
 use rand::{Rng, XorShiftRng};
 
 fn random(rng: &mut XorShiftRng, p: u32) -> Float {
-    let mut f = Float::from(1.0).with_precision(p);
-    for _ in 0..(p / 53) + 1 {
-        let x = rng.gen::<f64>() - 0.5;
-        let x = x + 0.5 * x.signum();
-        f *= &Float::from(x).with_precision(p);
+    let mut f = Float::rand(rng, p);
+    let p = p as i64;
+    let exp = rng.gen_range(-p, p);
+    if rng.gen() {
+        f = -f;
     }
-    f
+
+    f.mul_exp2(exp)
 }
 
 fn bench<F>(b: &mut test::Bencher, p: u32, mut f: F)

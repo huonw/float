@@ -6,11 +6,11 @@ version = "0.1.0"
 [dependencies]
 ieee754 = "0.2.0"
 ramp = { git = "https://github.com/Aatch/ramp" }
+rand = "0.3"
 
 [dev-dependencies]
 quickcheck = "0.2.24"
 quickcheck_macros = "0.2.24"
-rand = "0.3"
 
 [features]
 unstable = []

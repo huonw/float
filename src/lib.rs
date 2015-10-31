@@ -3,6 +3,7 @@
 
 extern crate ramp;
 extern crate ieee754;
+extern crate rand;
 
 use ramp::Int;
 use std::{fmt, i64, mem};
@@ -52,6 +53,34 @@ impl Float {
             exp: i64::MIN,
             signif: Int::zero(),
             style: Style::Zero,
+        }
+    }
+
+    /// Generate a float in [0, 1), with the same distribution as
+    /// generating an integer in [0, 2**p) and dividing by
+    /// 2**p. (i.e. pretty close to uniform, but the smallest bits
+    /// aren't quite right).
+    pub fn rand<R: rand::Rng>(r: &mut R, p: u32) -> Float {
+        use ramp::RandomInt;
+
+        let mut signif = RandomInt::gen_uint(r, p as usize);
+        let bits = signif.bit_length();
+        assert!(bits <= p);
+        let shift = p - bits;
+
+        let (exp, style) = if signif == 0 {
+            (i64::MIN, Style::Zero)
+        } else {
+            signif <<= shift as usize;
+
+            (-1 - (shift as i64), Style::Normal)
+        };
+        Float {
+            prec: p,
+            sign: Sign::Pos,
+            exp: exp,
+            signif: signif,
+            style: style
         }
     }
 
