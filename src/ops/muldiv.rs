@@ -1,8 +1,8 @@
 use {Style, Sign, Float};
-use ramp::Int;
-
 use std::i64;
 use std::ops::{Mul, MulAssign, Div, DivAssign};
+
+use ramp::ll::limb::Limb;
 
 impl<'a> Mul<&'a Float> for Float {
     type Output = Float;
@@ -137,41 +137,46 @@ impl<'a> Div<&'a Float> for Float {
                     unimplemented!()
                 }
 
+
+                let exp = self.exp - other.exp - (self.signif < other.signif) as i64;
                 let sign = self.sign ^ other.sign;
 
-                let mut n = self.signif;
-                let m = &other.signif;
-                let c = if n < *m { 0 } else { 1 };
-                let exp = self.exp + -other.exp - 1 + c;
+                // we compute (m1 * 2**x) / m2 for some x >= p + 1, to
+                // ensure we get the full significand, and the
+                // rounding bit, and can use the remainder to check
+                // for sticky bits.
 
-                if c == 0 {
-                    n <<= 1;
-                }
+                // round-up so that we're shifting by whole limbs,
+                // ensuring there's no need for sub-limb shifts.
+                let shift = (prec as usize  + 1 + Limb::BITS - 1) / Limb::BITS * Limb::BITS;
 
-                let mut q = Int::from(1);
-                let mut r = n - m;
+                self.signif <<= shift;
 
-                for _ in 0..prec {
-                    let t = (r << 1) - m;
-                    if t < 0 {
-                        q <<= 1;
-                        r = t + m;
-                    } else {
-                        q <<= 1;
-                        q += 1;
-                        r = t;
-                    }
-                }
-                let round = q.bit(0);
-                let signif = (q >> 1) + (round as i32);
+                let (mut q, r) = self.signif.divmod(&other.signif);
 
-                Float {
+                let bits = q.bit_length();
+                assert!(bits >= prec + 1);
+                let unshift = bits - prec;
+
+                let ulp_bit = q.bit(unshift);
+                let half_ulp_bit = q.bit(unshift - 1);
+                let has_trailing_ones = r != 0 || q.trailing_zeros() < unshift - 1;
+
+                q >>= unshift as usize;
+
+                let mut ret = Float {
                     prec: prec,
                     sign: sign,
                     exp: exp,
-                    signif: signif,
+                    signif: q,
                     style: Style::Normal,
+                };
+
+                if half_ulp_bit && (ulp_bit || has_trailing_ones) {
+                    ret.add_ulp(prec);
                 }
+
+                ret
             }
         }
     }
