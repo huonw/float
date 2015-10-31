@@ -1,6 +1,8 @@
 use {Style, Sign, Float};
 use ramp::Int;
 
+use std::mem;
+
 impl Float {
     pub fn sqrt(mut self) -> Float {
         self.debug_assert_valid();
@@ -25,24 +27,36 @@ impl Float {
                 self.exp = (self.exp - c) / 2;
                 let shift = 1 + c;
 
+                // this code is equivalent to that described in the
+                // Handbook of Floating-Point Arithmetic, but
+                // carefully uses operations on single bits, for speed
+                // (the shifts and additions reduce to such trivial
+                // bit ops)
+                let mut r = mem::replace(&mut self.signif, Int::from(1) << prec as usize);
+                r <<= shift as usize;
+                r -= &self.signif;
+                let mut two_q_p = &self.signif << 1;
 
-                let mut s = Int::from(1) << prec as usize;
-                let mut q = s.clone();
-                let mut r = (self.signif << shift as usize) - &q;
+                let mut s_i = prec;
+                while s_i > 0 {
+                    s_i -= 1;
 
-                for _ in 0..prec {
-                    s >>= 1;
-                    let two_r = r << 1;
-                    let two_q_p = (&q << 1) + &s;
-                    if two_r < two_q_p {
-                        r = two_r
+                    r <<= 1;
+                    if r < two_q_p { continue }
+
+                    two_q_p.set_bit(s_i, true);
+                    if r < two_q_p {
+                        // nothing
                     } else {
-                        q += &s;
-                        r = two_r - two_q_p;
+                        self.signif.set_bit(s_i, true);
+                        r -= &two_q_p;
+                        two_q_p.set_bit(s_i + 1, true);
                     }
+                    two_q_p.set_bit(s_i, false);
                 }
-                let round = q.bit(0);
-                self.signif = (q >> 1) + (round as i32);
+                let round = self.signif.bit(0);
+                self.signif >>= 1;
+                self.signif += round as i32;
 
                 self
             }

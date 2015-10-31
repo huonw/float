@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 ieee754 = "0.2.0"
-ramp = { git = "https://github.com/Aatch/ramp" }
+ramp = { git = "https://github.com/huonw/ramp", branch = "set_bit" }
 rand = "0.3"
 
 [dev-dependencies]
