@@ -152,7 +152,7 @@ impl<'a> Div<&'a Float> for Float {
                 let mut r = n - m;
 
                 for _ in 0..prec {
-                    let t = 2 * r - m;
+                    let t = (r << 1) - m;
                     if t < 0 {
                         q <<= 1;
                         r = t + m;
