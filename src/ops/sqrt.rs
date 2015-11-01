@@ -1,7 +1,4 @@
 use {Style, Sign, Float};
-use ramp::Int;
-
-use std::mem;
 
 impl Float {
     pub fn sqrt(mut self) -> Float {
@@ -21,44 +18,43 @@ impl Float {
                 if self.sign == Sign::Neg {
                     return Float::nan(prec);
                 }
+
                 // use this instead of % 2 to get the right sign
                 // (should be 0 or 1, even if exp is negative)
                 let c = self.exp & 1;
-                self.exp = (self.exp - c) / 2;
-                let shift = 1 + c;
+                let exp = (self.exp - c) / 2;
 
-                // this code is equivalent to that described in the
-                // Handbook of Floating-Point Arithmetic, but
-                // carefully uses operations on single bits, for speed
-                // (the shifts and additions reduce to such trivial
-                // bit ops)
-                let mut r = mem::replace(&mut self.signif, Int::from(1) << prec as usize);
-                r <<= shift as usize;
-                r -= &self.signif;
-                let mut two_q_p = &self.signif << 1;
+                // we compute sqrt(m1 * 2**c * 2**(p + 1)) to ensure
+                // we get the full significand, and the rounding bit,
+                // and can use the remainder to check for sticky bits.
+                let shift = prec as usize + 1 + c as usize;
+                self.signif <<= shift;
 
-                let mut s_i = prec;
-                while s_i > 0 {
-                    s_i -= 1;
+                let (mut sqrt, rem) = self.signif.sqrt_rem().unwrap();
 
-                    r <<= 1;
-                    if r < two_q_p { continue }
+                let bits = sqrt.bit_length();
+                assert!(bits >= prec + 1);
+                let unshift = bits - prec;
 
-                    two_q_p.set_bit(s_i, true);
-                    if r < two_q_p {
-                        // nothing
-                    } else {
-                        self.signif.set_bit(s_i, true);
-                        r -= &two_q_p;
-                        two_q_p.set_bit(s_i + 1, true);
-                    }
-                    two_q_p.set_bit(s_i, false);
+                let ulp_bit = sqrt.bit(unshift);
+                let half_ulp_bit = sqrt.bit(unshift - 1);
+                let has_trailing_ones = rem != 0 || sqrt.trailing_zeros() < unshift - 1;
+
+                sqrt >>= unshift as usize;
+
+                let mut ret = Float {
+                    prec: prec,
+                    sign: Sign::Pos,
+                    exp: exp,
+                    signif: sqrt,
+                    style: Style::Normal,
+                };
+
+                if half_ulp_bit && (ulp_bit || has_trailing_ones) {
+                    ret.add_ulp(prec);
                 }
-                let round = self.signif.bit(0);
-                self.signif >>= 1;
-                self.signif += round as i32;
 
-                self
+                ret
             }
         }
     }
