@@ -331,3 +331,14 @@ impl Float {
         assert!(self.is_valid());
     }
 }
+
+fn add_overflow(x: i64, y: i64) -> (i64, bool) {
+    unsafe {
+        std::intrinsics::add_with_overflow(x, y)
+    }
+}
+fn sub_overflow(x: i64, y: i64) -> (i64, bool) {
+    unsafe {
+        std::intrinsics::sub_with_overflow(x, y)
+    }
+}

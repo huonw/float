@@ -1,4 +1,4 @@
-use {Style, Sign, Float};
+use {Style, Sign, Float, add_overflow, sub_overflow};
 use std::i64;
 use std::ops::{Mul, MulAssign, Div, DivAssign};
 
@@ -27,33 +27,38 @@ impl<'a> Mul<&'a Float> for Float {
                 Float::zero_(prec, Sign::Pos)
             }
             (Style::Normal, Style::Normal) => {
-                if self.exp > 0 && other.exp > i64::MAX - self.exp {
-                    // overflow
-                    return Float::inf(prec, self.sign ^ other.sign)
-                } else if self.exp < 0 && other.exp < i64::MIN - self.exp {
-                    // FIXME (#1): handle underflow
-                    unimplemented!()
-                }
-
-                self.exp += other.exp;
                 self.signif *= &other.signif;
                 self.sign = self.sign ^ other.sign;
 
                 let bits = self.signif.bit_length();
                 let shift = bits - prec;
 
-                let ulp_bit = self.signif.bit(shift);
-                let half_ulp_bit = self.signif.bit(shift - 1);
-                let has_trailing_ones = self.signif.trailing_zeros() < shift - 1;
+                let (raw_mult_exp, o1) = add_overflow(self.exp, other.exp);
+                let (adjusted_exp, o2) = add_overflow(raw_mult_exp,
+                                                      shift as i64 - (prec - 1) as i64);
+                self.exp = adjusted_exp;
+                if o1 ^ o2 {
+                    // if we only overflowed once, then there's a
+                    // problem. A double overflow means we went over
+                    // the limit and then back, but a single means we
+                    // never returned.
+                    let overflowed = if o1 { raw_mult_exp } else { adjusted_exp };
+                    self.exp = if overflowed < 0 { i64::MAX } else { i64::MIN };
+                    self.normalise(false);
+                } else {
+                    let ulp_bit = self.signif.bit(shift);
+                    let half_ulp_bit = self.signif.bit(shift - 1);
+                    let has_trailing_ones = self.signif.trailing_zeros() < shift - 1;
 
-                self.signif >>= shift as usize;
-                self.exp += shift as i64 - (prec - 1) as i64;
+                    self.signif >>= shift as usize;
 
-                let round = half_ulp_bit && (ulp_bit || has_trailing_ones);
-
-                if round {
-                    self.add_ulp();
+                    let round = half_ulp_bit && (ulp_bit || has_trailing_ones);
+                    if round {
+                        self.signif += 1;
+                    }
+                    self.normalise(true);
                 }
+
                 self
             }
         }
@@ -129,54 +134,51 @@ impl<'a> Div<&'a Float> for Float {
                 self
             }
             (Style::Normal, Style::Normal) => {
-                if self.exp > 0 && -other.exp > i64::MAX - self.exp {
-                    // overflow
-                    return Float::inf(prec, self.sign ^ other.sign)
-                } else if self.exp < 0 && -other.exp < i64::MIN - self.exp {
-                    // FIXME (#1): handle underflow
-                    unimplemented!()
+                let (raw_mult_exp, o1) = sub_overflow(self.exp, other.exp);
+                let (adjusted_exp, o2) = sub_overflow(raw_mult_exp,
+                                                      (self.signif < other.signif) as i64);
+                self.sign = self.sign ^ other.sign;
+                self.exp = adjusted_exp;
+
+                if o1 ^ o2 {
+                    // if we only overflowed once, then there's a
+                    // problem. A double overflow means we went over
+                    // the limit and then back, but a single means we
+                    // never returned.
+                    let overflowed = if o1 { raw_mult_exp } else { adjusted_exp };
+                    self.exp = if overflowed < 0 { i64::MAX } else { i64::MIN };
+                    self.normalise(false);
+                } else {
+                    // we compute (m1 * 2**x) / m2 for some x >= p + 1, to
+                    // ensure we get the full significand, and the
+                    // rounding bit, and can use the remainder to check
+                    // for sticky bits.
+
+                    // round-up so that we're shifting by whole limbs,
+                    // ensuring there's no need for sub-limb shifts.
+                    let shift = (prec as usize  + 1 + Limb::BITS - 1) / Limb::BITS * Limb::BITS;
+
+                    self.signif <<= shift;
+
+                    let (q, r) = self.signif.divmod(&other.signif);
+                    self.signif.clone_from(&q);
+
+                    let bits = self.signif.bit_length();
+                    assert!(bits >= prec + 1);
+                    let unshift = bits - prec;
+
+                    let ulp_bit = self.signif.bit(unshift);
+                    let half_ulp_bit = self.signif.bit(unshift - 1);
+                    let has_trailing_ones = r != 0 || self.signif.trailing_zeros() < unshift - 1;
+
+                    self.signif >>= unshift as usize;
+
+                    if half_ulp_bit && (ulp_bit || has_trailing_ones) {
+                        self.signif += 1;
+                    }
+                    self.normalise(true);
                 }
-
-
-                let exp = self.exp - other.exp - (self.signif < other.signif) as i64;
-                let sign = self.sign ^ other.sign;
-
-                // we compute (m1 * 2**x) / m2 for some x >= p + 1, to
-                // ensure we get the full significand, and the
-                // rounding bit, and can use the remainder to check
-                // for sticky bits.
-
-                // round-up so that we're shifting by whole limbs,
-                // ensuring there's no need for sub-limb shifts.
-                let shift = (prec as usize  + 1 + Limb::BITS - 1) / Limb::BITS * Limb::BITS;
-
-                self.signif <<= shift;
-
-                let (mut q, r) = self.signif.divmod(&other.signif);
-
-                let bits = q.bit_length();
-                assert!(bits >= prec + 1);
-                let unshift = bits - prec;
-
-                let ulp_bit = q.bit(unshift);
-                let half_ulp_bit = q.bit(unshift - 1);
-                let has_trailing_ones = r != 0 || q.trailing_zeros() < unshift - 1;
-
-                q >>= unshift as usize;
-
-                let mut ret = Float {
-                    prec: prec,
-                    sign: sign,
-                    exp: exp,
-                    signif: q,
-                    style: Style::Normal,
-                };
-
-                if half_ulp_bit && (ulp_bit || has_trailing_ones) {
-                    ret.add_ulp();
-                }
-
-                ret
+                self
             }
         }
     }

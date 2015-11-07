@@ -188,6 +188,28 @@ fn mul() {
            |x, y| x * y)
 }
 
+const HALF_EXP: i64 = i64::MAX / 2;
+
+#[test]
+fn mul_extreme_overflow() {
+    let exps = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
+    bin_op_extreme(5,
+                   exps.clone(), Region::NegPos, true, -HALF_EXP,
+                   exps, Region::NegPos, true, -HALF_EXP,
+                   HALF_EXP * 2,
+                   |x, y| x * y)
+}
+
+#[test]
+fn mul_extreme_underflow() {
+    let exps = (i64::MIN..i64::MIN + 4).chain(-HALF_EXP - 4..-HALF_EXP + 5).chain(-4..0);
+    bin_op_extreme(5,
+                   exps.clone(), Region::NegPos, false, HALF_EXP,
+                   exps.clone(), Region::NegPos, false, HALF_EXP,
+                   -HALF_EXP * 2,
+                   |x, y| x * y)
+}
+
 #[test]
 fn div() {
     bin_op(5,
@@ -195,4 +217,26 @@ fn div() {
            -10..10 + 1, Region::NegPos, false,
            |x, y| x / y,
            |x, y| x / y)
+}
+
+#[test]
+fn div_extreme_overflow() {
+    let exp_numer = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
+    let exp_denom = (i64::MIN + 1.. i64::MIN + 5).chain(-HALF_EXP - 5..-HALF_EXP + 5).chain(-4..0);
+    bin_op_extreme(5,
+                   exp_numer, Region::NegPos, false, -HALF_EXP,
+                   exp_denom, Region::NegPos, false, HALF_EXP,
+                   HALF_EXP * 2,
+                   |x, y| x / y)
+}
+
+#[test]
+fn div_extreme_underflow() {
+    let exp_numer = (i64::MIN + 1.. i64::MIN + 5).chain(-HALF_EXP - 5..-HALF_EXP + 5).chain(-4..0);
+    let exp_denom = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
+    bin_op_extreme(5,
+                   exp_numer, Region::NegPos, false, HALF_EXP,
+                   exp_denom, Region::NegPos, false, -HALF_EXP,
+                   -HALF_EXP * 2,
+                   |x, y| x / y)
 }
