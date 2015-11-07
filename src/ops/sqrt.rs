@@ -13,7 +13,7 @@ impl Float {
                     Sign::Neg => Float::nan(prec),
                 }
             }
-            Style::Zero => Float::zero(prec, self.sign),
+            Style::Zero => Float::zero_(prec, self.sign),
             Style::Normal => {
                 if self.sign == Sign::Neg {
                     return Float::nan(prec);

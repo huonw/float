@@ -24,7 +24,7 @@ impl<'a> Mul<&'a Float> for Float {
             }
             (Style::Zero, _) | (_, Style::Zero) => {
                 // FIXME (#3): need to get the right sign
-                Float::zero(prec, Sign::Pos)
+                Float::zero_(prec, Sign::Pos)
             }
             (Style::Normal, Style::Normal) => {
                 if self.exp > 0 && other.exp > i64::MAX - self.exp {
@@ -115,14 +115,14 @@ impl<'a> Div<&'a Float> for Float {
             // 0.0 / 0.0 is NaN
             (Style::Zero, Style::Zero) => Float::nan(prec),
             // 0.0 / x == 0.0
-            (Style::Zero, _) => Float::zero(prec, self.sign),
+            (Style::Zero, _) => Float::zero_(prec, self.sign),
             // x / 0.0 == inf
             (_, Style::Zero) => Float::inf(prec, other.sign),
             (Style::Infinity, Style::Infinity) => {
                 Float::nan(prec)
             }
             // x / inf == 0.0
-            (_, Style::Infinity) => Float::zero(prec, other.sign),
+            (_, Style::Infinity) => Float::zero_(prec, other.sign),
             // inf / x == inf (x != 0)
             (Style::Infinity, _) => {
                 self.sign = self.sign ^ other.sign;

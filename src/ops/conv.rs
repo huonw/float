@@ -7,7 +7,7 @@ use ieee754::Ieee754;
 impl From<Int> for Float {
     fn from(x: Int) -> Float {
         if x == 0 {
-            Float::zero(1, Sign::Pos)
+            Float::zero(1)
         } else {
             let bits = x.bit_length();
             let sign = if x.sign() < 0 { Sign::Neg } else { Sign::Pos };
@@ -50,7 +50,7 @@ fn from_ieee754(prec: u32, exp_width: u32, is_negative: bool, exp: i64, signif: 
 
     if exp == min {
         if signif == 0 {
-            Float::zero(prec, sign)
+            Float::zero_(prec, sign)
         } else {
             // subnormal
             unimplemented!()

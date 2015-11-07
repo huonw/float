@@ -45,14 +45,51 @@ impl fmt::Debug for Float {
 }
 
 impl Float {
-    pub fn zero(p: u32, sign: Sign) -> Float {
-        // this zero is infinitely precise
+    pub fn zero(p: u32) -> Float {
+        Float::zero_(p, Sign::Pos)
+    }
+
+    pub fn neg_zero(p: u32) -> Float {
+        Float::zero_(p, Sign::Neg)
+    }
+
+    pub fn max(p: u32) -> Float {
         Float {
             prec: p,
-            sign: sign,
-            exp: i64::MIN,
+            sign: Sign::Pos,
+            exp: i64::MAX - 1,
+            signif: (Int::from(1) << p as usize) - 1,
+            style: Style::Normal
+        }
+    }
+    pub fn min(p: u32) -> Float {
+        -Float::max(p)
+    }
+    pub fn min_positive(p: u32) -> Float {
+        Float {
+            prec: p,
+            sign: Sign::Pos,
+            exp: i64::MIN + 1,
+            signif: (Int::from(1) << (p as usize - 1)),
+            style: Style::Normal,
+        }
+    }
+
+    pub fn infinity(p: u32) -> Float {
+        Float::inf(p, Sign::Pos)
+    }
+
+    pub fn neg_infinity(p: u32) -> Float {
+        Float::inf(p, Sign::Neg)
+    }
+
+    pub fn nan(p: u32) -> Float {
+        Float {
+            prec: p,
+            sign: Sign::Pos,
+            exp: i64::MAX,
             signif: Int::zero(),
-            style: Style::Zero,
+            style: Style::NaN,
         }
     }
 
@@ -150,13 +187,13 @@ impl Float {
         *self = f(val);
         self.debug_assert_valid();
     }
-    fn nan(p: u32) -> Float {
+    fn zero_(p: u32, sign: Sign) -> Float {
         Float {
             prec: p,
-            sign: Sign::Pos,
-            exp: i64::MAX,
+            sign: sign,
+            exp: i64::MIN,
             signif: Int::zero(),
-            style: Style::NaN,
+            style: Style::Zero,
         }
     }
     fn inf(p: u32, sign: Sign) -> Float {

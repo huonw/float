@@ -68,7 +68,7 @@ impl Add<Float> for Float {
 
                 if self.signif == 0 {
                     // FIXME (#3): should this always return +0.0?
-                    return Float::zero(prec, Sign::Pos);
+                    return Float::zero(prec);
                 }
                 self.sign = if self.signif < 0 {
                     self.signif = self.signif.abs();
