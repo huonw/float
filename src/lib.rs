@@ -1,5 +1,6 @@
 #![feature(augmented_assignments,
-           op_assign_traits)]
+           op_assign_traits,
+           core_intrinsics)]
 
 extern crate ramp;
 extern crate ieee754;
@@ -197,8 +198,8 @@ impl Float {
         self.debug_assert_valid();
         match self.style {
             Style::Normal => {
-                // FIXME (#1): handle overflow
-                self.exp = self.exp.checked_add(exp).unwrap_or_else(|| unimplemented!());
+                self.exp = self.exp.saturating_add(exp);
+                self.normalise(false);
             }
             Style::NaN | Style::Infinity | Style::Zero => {}
         }
@@ -228,6 +229,27 @@ impl Float {
             exp: i64::MAX,
             signif: Int::zero(),
             style: Style::Infinity
+        }
+    }
+    fn normalise(&mut self, check_bits: bool) {
+        let diff = if check_bits {
+            self.signif.bit_length() as i64 - self.prec as i64
+        } else {
+            0
+        };
+        self.exp = self.exp.saturating_add(diff);
+        match self.exp {
+            // FIXME (#13)
+            i64::MAX => *self = Float::inf(self.prec, self.sign),
+            i64::MIN => *self = Float::zero_(self.prec, self.sign),
+            _ => {
+                use std::cmp::Ordering;
+                match diff.cmp(&0) {
+                    Ordering::Greater => self.signif >>= diff as usize,
+                    Ordering::Equal => {},
+                    Ordering::Less => self.signif <<= (-diff) as usize,
+                }
+            }
         }
     }
 

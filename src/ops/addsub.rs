@@ -95,7 +95,7 @@ impl Add<Float> for Float {
                     half_ulp_bit && (ulp_bit || has_trailing_one)
                 } else {
                     let refill = prec + 3 - bits;
-                    self.exp = self.exp.checked_sub(refill as i64).unwrap_or_else(|| unimplemented!());
+                    self.exp = self.exp.saturating_sub(refill as i64);
                     if refill <= 3 {
                         let b0 = self.signif.bit(0);
                         let b1 = self.signif.bit(1);
@@ -110,9 +110,9 @@ impl Add<Float> for Float {
                     }
                 };
                 if round {
-                    self.add_ulp();
+                    self.signif += 1;
                 }
-
+                self.normalise(true);
                 self
             }
         }

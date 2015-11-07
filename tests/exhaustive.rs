@@ -1,9 +1,8 @@
-#![feature(float_extras)]
-
 extern crate ramp;
 extern crate float;
 
 use float::Float;
+use std::i64;
 
 struct AtPrecision {
     val: u32,
@@ -34,18 +33,18 @@ impl Iterator for AtPrecision {
     }
 }
 
-fn floats<F: FnMut(f64), E: Clone + Iterator<Item = i64>>(p: u32, region: Region, zero: bool, exps: E, mut f: F) {
+fn floats<F: FnMut(Float), E: Clone + Iterator<Item = i64>>(p: u32, region: Region, zero: bool, exps: E, mut f: F) {
     if zero {
-        f(0.0)
+        f(Float::zero(p))
     }
-    let pos = region != Region::Neg;
-    let neg = region != Region::Pos;
-
     for raw_x in AtPrecision::new(p) {
         for exp in exps.clone() {
-            let x = f64::ldexp(raw_x, exp as isize);
-            if pos { f(x) }
-            if neg { f(-x) }
+            let x = Float::from(raw_x).with_precision(p).mul_exp2(exp);
+            match region {
+                Region::Neg => f(-x),
+                Region::NegPos => { f(-x.clone()); f(x) }
+                Region::Pos => f(x)
+            }
         }
     }
 }
@@ -62,15 +61,15 @@ fn un_op<F, G, E>(p: u32, exps: E,
     where F: FnMut(Float) -> Float, G: FnMut(f64) -> f64, E: Clone + Iterator<Item = i64>
 {
     floats(p, region, zero, exps, |x| {
-        let est = op(Float::from(x).with_precision(p));
-        let real = op_f64(x);
+        let est = op(x.clone());
+        let x_f64 = x.into();
+        let real = op_f64(x_f64);
 
         let real = Float::from(real).with_precision(p);
-        assert!(est.clone() == real.clone(),
+        assert!(est == real,
                 "{} => {:?} != {:?}",
-                x, est, real);
+                x_f64, est, real);
     });
-
 }
 
 fn bin_op<F, G, E1, E2>(p: u32,
@@ -83,14 +82,37 @@ fn bin_op<F, G, E1, E2>(p: u32,
 {
     floats(p, region1, zero1, exps1, |x| {
         floats(p, region2, zero2, exps2.clone(), |y| {
-            let est = op(Float::from(x).with_precision(p),
-                         Float::from(y).with_precision(p));
-            let real = op_f64(x, y);
+            let est = op(x.clone(), y.clone());
+            let x_f64 = x.clone().into();
+            let y_f64 = y.into();
+            let real = op_f64(x_f64, y_f64);
 
             let real = Float::from(real).with_precision(p);
-            assert!(est.clone() == real.clone(),
+            assert!(est == real,
                     "{}, {} => {:?} != {:?}",
-                    x, y, est, real);
+                    x_f64, y_f64, est, real);
+        })
+    })
+}
+
+fn bin_op_extreme<F, E1, E2>(p: u32,
+                             exps1: E1, region1: Region, zero1: bool, mul1: i64,
+                             exps2: E2, region2: Region, zero2: bool, mul2: i64,
+                             unmul: i64,
+                             mut op: F)
+    where F: FnMut(Float, Float) -> Float,
+          E1: Clone + Iterator<Item = i64>,
+          E2: Clone + Iterator<Item = i64>
+{
+    floats(p, region1, zero1, exps1, |x| {
+        floats(p, region2, zero2, exps2.clone(), |y| {
+            let scaled = op(x.clone().mul_exp2(mul1),
+                            y.clone().mul_exp2(mul2));
+            let expected = scaled.mul_exp2(unmul);
+            let est = op(x.clone(), y.clone());
+            assert!(est == expected,
+                    "{:?}, {:?} => {:?} != {:?}",
+                    x, y, est, expected)
         })
     })
 }
@@ -113,12 +135,48 @@ fn add() {
 }
 
 #[test]
+fn add_extreme_overflow() {
+    bin_op_extreme(5,
+                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
+                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
+                   i64::MAX,
+                   |x, y| x + y)
+}
+
+#[test]
+fn add_extreme_underflow() {
+    bin_op_extreme(5,
+                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
+                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
+                   -i64::MAX,
+                   |x, y| x + y)
+}
+
+#[test]
 fn sub() {
     bin_op(5,
            -10..10 + 1, Region::NegPos, true,
            -10..10 + 1, Region::NegPos, true,
            |x, y| x - y,
            |x, y| x - y)
+}
+
+#[test]
+fn sub_extreme_overflow() {
+    bin_op_extreme(5,
+                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
+                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
+                   i64::MAX,
+                   |x, y| x - y)
+}
+
+#[test]
+fn sub_extreme_underflow() {
+    bin_op_extreme(5,
+                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
+                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
+                   -i64::MAX,
+                   |x, y| x - y)
 }
 
 #[test]
