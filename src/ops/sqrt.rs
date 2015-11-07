@@ -51,7 +51,7 @@ impl Float {
                 };
 
                 if half_ulp_bit && (ulp_bit || has_trailing_ones) {
-                    ret.add_ulp(prec);
+                    ret.add_ulp();
                 }
 
                 ret

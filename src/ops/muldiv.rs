@@ -52,7 +52,7 @@ impl<'a> Mul<&'a Float> for Float {
                 let round = half_ulp_bit && (ulp_bit || has_trailing_ones);
 
                 if round {
-                    self.add_ulp(prec);
+                    self.add_ulp();
                 }
                 self
             }
@@ -173,7 +173,7 @@ impl<'a> Div<&'a Float> for Float {
                 };
 
                 if half_ulp_bit && (ulp_bit || has_trailing_ones) {
-                    ret.add_ulp(prec);
+                    ret.add_ulp();
                 }
 
                 ret

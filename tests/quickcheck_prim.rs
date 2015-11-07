@@ -1,4 +1,4 @@
-#![feature(plugin)]
+#![feature(plugin, float_extras)]
 #![plugin(quickcheck_macros)]
 
 extern crate quickcheck;
@@ -21,6 +21,7 @@ fn assert_eq<T: Copy + PartialEq + Display + From<Float>>(a: Float, b: T) -> Tes
 macro_rules! tests {
     ($t: ident) => {
         mod $t {
+            use std::$t;
             use assert_eq;
             use float::Float;
             use quickcheck::TestResult;
@@ -75,6 +76,30 @@ macro_rules! tests {
 
                 let f = Float::from(x);
                 assert_eq(f.sqrt(), x.sqrt())
+            }
+
+            #[quickcheck]
+            fn next_after(x: $t, target: $t) {
+                let f = Float::from(x);
+                let f_target = Float::from(target);
+
+                assert_eq(f.clone().next_toward(&f_target),
+                          x.next_after(target));
+
+                assert_eq(f.clone().next_toward(&f), x.next_after(x));
+            }
+
+            #[quickcheck]
+            fn next_above(x: $t) {
+                let f = Float::from(x);
+
+                assert_eq(f.next_above(), x.next_after($t::INFINITY));
+            }
+            #[quickcheck]
+            fn next_below(x: $t) {
+                let f = Float::from(x);
+
+                assert_eq(f.next_below(), x.next_after($t::NEG_INFINITY));
             }
 
             #[quickcheck]

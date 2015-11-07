@@ -93,6 +93,31 @@ impl Float {
         }
     }
 
+    pub fn next_above(mut self) -> Float {
+        if self.sign == Sign::Pos {
+            self.add_ulp();
+        } else {
+            self.sub_ulp();
+        }
+        self
+    }
+    pub fn next_below(mut self) -> Float {
+        if self.sign == Sign::Neg {
+            self.add_ulp();
+        } else {
+            self.sub_ulp();
+        }
+        self
+    }
+    pub fn next_toward(self, target: &Float) -> Float {
+        use std::cmp::Ordering;
+        match self.partial_cmp(target) {
+            None | Some(Ordering::Equal) => self,
+            Some(Ordering::Less) => self.next_above(),
+            Some(Ordering::Greater) => self.next_below(),
+        }
+    }
+
     /// Generate a float in [0, 1), with the same distribution as
     /// generating an integer in [0, 2**p) and dividing by
     /// 2**p. (i.e. pretty close to uniform, but the smallest bits
@@ -156,7 +181,7 @@ impl Float {
 
                     self.signif >>= (old_prec - prec) as usize;
                     if round {
-                        self.add_ulp(prec);
+                        self.add_ulp();
                     }
                 } else if prec > old_prec {
                     self.signif <<= (prec - old_prec) as usize;
@@ -206,13 +231,57 @@ impl Float {
         }
     }
 
-    fn add_ulp(&mut self, prec: u32) {
+    fn add_ulp(&mut self) {
         self.debug_assert_valid();
-        self.signif += 1;
-        if self.signif.bit(prec) {
-            self.signif >>= 1;
-            // FIXME (#1): handle overflow
-            self.exp += 1;
+        match self.style {
+            Style::NaN => {},
+            Style::Infinity => {}
+            Style::Zero => {
+                let s = self.sign;
+                // FIXME (#13)
+                *self = Float::min_positive(self.prec);
+                self.sign = s;
+            }
+            Style::Normal => {
+                self.signif += 1;
+                if self.signif.bit(self.prec) {
+                    self.exp += 1;
+                    if self.exp == i64::MAX {
+                        // FIXME (#13)
+                        *self = Float::inf(self.prec, self.sign)
+                    } else {
+                        self.signif >>= 1;
+                    }
+                }
+            }
+        }
+    }
+    fn sub_ulp(&mut self) {
+        self.debug_assert_valid();
+        match self.style {
+            Style::NaN => {},
+            Style::Infinity => {
+                // FIXME (#13)
+                *self = Float::max(self.prec)
+            }
+            Style::Zero => {
+                // FIXME (#13)
+                *self = Float::min_positive(self.prec);
+                self.sign = -self.sign;
+            }
+            Style::Normal => {
+                self.signif -= 1;
+                if !self.signif.bit(self.prec - 1) {
+                    self.exp -= 1;
+                    if self.exp == i64::MIN {
+                        // FIXME (#13)
+                        *self = Float::zero_(self.prec, self.sign);
+                    } else {
+                        self.signif <<= 1;
+                        self.signif |= 1;
+                    }
+                }
+            }
         }
     }
 

@@ -110,7 +110,7 @@ impl Add<Float> for Float {
                     }
                 };
                 if round {
-                    self.add_ulp(prec);
+                    self.add_ulp();
                 }
 
                 self
