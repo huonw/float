@@ -84,13 +84,13 @@ fn bin_op<F, G, E1, E2>(p: u32,
         floats(p, region2, zero2, exps2.clone(), |y| {
             let est = op(x.clone(), y.clone());
             let x_f64 = x.clone().into();
-            let y_f64 = y.into();
+            let y_f64 = y.clone().into();
             let real = op_f64(x_f64, y_f64);
 
             let real = Float::from(real).with_precision(p);
             assert!(est == real,
-                    "{}, {} => {:?} != {:?}",
-                    x_f64, y_f64, est, real);
+                    "{:?} ({}), {:?} ({}) => {:?} != {:?}",
+                    x, x_f64, y, y_f64, est, real);
         })
     })
 }
@@ -125,118 +125,83 @@ fn sqrt() {
           |y| y.sqrt())
 }
 
-#[test]
-fn add() {
-    bin_op(5,
-           -10..10 + 1, Region::NegPos, true,
-           -10..10 + 1, Region::NegPos, true,
-           |x, y| x + y,
-           |x, y| x + y)
+macro_rules! expr { ($e: expr) => { $e } }
+macro_rules! by_val_by_ref {
+    ($op: tt, $tester: ident) => {
+        #[test] fn val_val() { expr!($tester(|x, y| x $op y)) }
+        #[test] fn val_ref() { expr!($tester(|x, y| x $op &y)) }
+        #[test] fn ref_val() { expr!($tester(|x, y| &x $op y)) }
+        #[test] fn ref_ref() { expr!($tester(|x, y| &x $op &y)) }
+    }
 }
+macro_rules! tests {
+    ($($name: ident, $op: tt, $y_zero: expr,
+       $extreme_x_exp: expr, $x_shift: expr,
+       $extreme_y_exp: expr, $y_shift: expr,
+       $unshift: expr;)*) => {
+        $(mod $name {
+            use {bin_op, Region};
+            use float::Float;
 
-#[test]
-fn add_extreme_overflow() {
-    bin_op_extreme(5,
-                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
-                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
-                   i64::MAX,
-                   |x, y| x + y)
-}
+            fn test<F: FnMut(Float, Float) -> Float>(f: F) {
+                expr!(bin_op(5,
+                             -5..5 + 1, Region::NegPos, true,
+                             -5..5 + 1, Region::NegPos, $y_zero,
+                             f,
+                             |x, y| x $op y))
+            }
 
-#[test]
-fn add_extreme_underflow() {
-    bin_op_extreme(5,
-                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
-                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
-                   -i64::MAX,
-                   |x, y| x + y)
-}
+            by_val_by_ref! { $op, test }
 
-#[test]
-fn sub() {
-    bin_op(5,
-           -10..10 + 1, Region::NegPos, true,
-           -10..10 + 1, Region::NegPos, true,
-           |x, y| x - y,
-           |x, y| x - y)
-}
+            #[allow(unused_imports)]
+            mod overflow {
+                use {bin_op_extreme, Region};
+                use float::Float;
+                use HALF_EXP;
+                use std::i64;
 
-#[test]
-fn sub_extreme_overflow() {
-    bin_op_extreme(5,
-                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
-                   i64::MAX - 6..i64::MAX, Region::NegPos, true, -i64::MAX,
-                   i64::MAX,
-                   |x, y| x - y)
-}
+                fn test<F: FnMut(Float, Float) -> Float>(f: F) {
+                    expr!(bin_op_extreme(5,
+                                         $extreme_x_exp, Region::NegPos, true, -$x_shift,
+                                         $extreme_y_exp, Region::NegPos, $y_zero, -$y_shift,
+                                         $unshift,
+                                         f))
+                }
 
-#[test]
-fn sub_extreme_underflow() {
-    bin_op_extreme(5,
-                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
-                   i64::MIN..i64::MIN + 6, Region::NegPos, true, i64::MAX,
-                   -i64::MAX,
-                   |x, y| x - y)
-}
+                by_val_by_ref! { $op, test }
+            }
+            #[allow(unused_imports)]
+            mod underflow {
+                use {bin_op_extreme, Region};
+                use float::Float;
+                use HALF_EXP;
+                use std::i64;
+                use std::ops::Neg;
 
-#[test]
-fn mul() {
-    bin_op(5,
-           -10..10 + 1, Region::NegPos, true,
-           -10..10 + 1, Region::NegPos, true,
-           |x, y| x * y,
-           |x, y| x * y)
+                fn test<F: FnMut(Float, Float) -> Float>(f: F) {
+                    expr!(bin_op_extreme(5,
+                                         $extreme_x_exp.map(Neg::neg as fn(i64) -> i64), Region::NegPos, true, $x_shift,
+                                         $extreme_y_exp.map(Neg::neg as fn(i64) -> i64), Region::NegPos, $y_zero, $y_shift,
+                                         -$unshift,
+                                         f))
+                }
+
+                by_val_by_ref! { $op, test }
+            }
+        })*
+    }
 }
 
 const HALF_EXP: i64 = i64::MAX / 2;
-
-#[test]
-fn mul_extreme_overflow() {
-    let exps = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
-    bin_op_extreme(5,
-                   exps.clone(), Region::NegPos, true, -HALF_EXP,
-                   exps, Region::NegPos, true, -HALF_EXP,
-                   HALF_EXP * 2,
-                   |x, y| x * y)
-}
-
-#[test]
-fn mul_extreme_underflow() {
-    let exps = (i64::MIN..i64::MIN + 4).chain(-HALF_EXP - 4..-HALF_EXP + 5).chain(-4..0);
-    bin_op_extreme(5,
-                   exps.clone(), Region::NegPos, false, HALF_EXP,
-                   exps.clone(), Region::NegPos, false, HALF_EXP,
-                   -HALF_EXP * 2,
-                   |x, y| x * y)
-}
-
-#[test]
-fn div() {
-    bin_op(5,
-           -10..10 + 1, Region::NegPos, true,
-           -10..10 + 1, Region::NegPos, false,
-           |x, y| x / y,
-           |x, y| x / y)
-}
-
-#[test]
-fn div_extreme_overflow() {
-    let exp_numer = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
-    let exp_denom = (i64::MIN + 1.. i64::MIN + 5).chain(-HALF_EXP - 5..-HALF_EXP + 5).chain(-4..0);
-    bin_op_extreme(5,
-                   exp_numer, Region::NegPos, false, -HALF_EXP,
-                   exp_denom, Region::NegPos, false, HALF_EXP,
-                   HALF_EXP * 2,
-                   |x, y| x / y)
-}
-
-#[test]
-fn div_extreme_underflow() {
-    let exp_numer = (i64::MIN + 1.. i64::MIN + 5).chain(-HALF_EXP - 5..-HALF_EXP + 5).chain(-4..0);
-    let exp_denom = (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4);
-    bin_op_extreme(5,
-                   exp_numer, Region::NegPos, false, HALF_EXP,
-                   exp_denom, Region::NegPos, false, -HALF_EXP,
-                   -HALF_EXP * 2,
-                   |x, y| x / y)
+tests! {
+    add, +, true, i64::MAX - 6..i64::MAX, i64::MAX, i64::MAX - 6..i64::MAX, i64::MAX, i64::MAX;
+    sub, -, true, i64::MAX - 6..i64::MAX, i64::MAX, i64::MAX - 6..i64::MAX, i64::MAX, i64::MAX;
+    mul, *, true,
+    (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(1..4), HALF_EXP,
+    (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(1..4), HALF_EXP,
+    HALF_EXP * 2;
+    div, /, false,
+    (i64::MAX - 4..i64::MAX).chain(HALF_EXP - 4..HALF_EXP + 5).chain(0..4), HALF_EXP,
+    (i64::MIN + 1.. i64::MIN + 5).chain(-HALF_EXP - 5..-HALF_EXP + 5).chain(-4..0), -HALF_EXP,
+    HALF_EXP * 2;
 }
