@@ -1,6 +1,6 @@
-use {Style, Sign, Float};
+use {Style, Float};
 
-use std::mem;
+use std::{cmp, mem, u32};
 use std::ops::{Add, AddAssign, Sub, SubAssign,
                Neg};
 
@@ -20,6 +20,95 @@ impl<'a> Neg for &'a Float {
     }
 }
 
+#[derive(Copy, Clone)]
+enum Operation { Add, Sub }
+fn can_use_unsigned_add(x: &Float, y: &Float, op: Operation) -> bool {
+    x.exp <= y.exp && match op {
+        Operation::Add => x.sign == y.sign,
+        Operation::Sub => x.sign != y.sign
+    }
+}
+fn can_use_unsigned_sub(x: &Float, y: &Float, op: Operation) -> bool {
+    x.exp >= y.exp && match op {
+        Operation::Add => x.sign != y.sign,
+        Operation::Sub => x.sign == y.sign
+    }
+}
+fn can_use_unsigned_op(x: &Float, y: &Float, op: Operation) -> bool {
+    can_use_unsigned_add(x, y, op) || can_use_unsigned_sub(x, y, op)
+}
+
+// this does an "unsigned" addition, which means it is just adding the
+// two significands directly, even if the signs of the two floats are
+// opposite (i.e. so a conventional addition would be a subtraction of
+// their significands)
+fn unsigned_add(x: &mut Float, y: &Float, op: Operation) {
+    debug_assert!(can_use_unsigned_add(x, y, op));
+
+    let diff = y.exp.saturating_sub(x.exp) as u64;
+    let diff = cmp::min(diff, u32::MAX as u64) as usize;
+    let mut half_ulp_bit = false;
+    let mut has_trailing_one = false;
+    if diff > 0 {
+        let half_ulp = diff as u32 - 1;
+        half_ulp_bit = x.signif.bit(half_ulp);
+        has_trailing_one = x.signif.trailing_zeros() < half_ulp;
+    }
+
+    x.signif >>= diff;
+    x.signif += &y.signif;
+    x.exp = y.exp;
+
+    let overflowed = x.signif.bit(x.prec);
+
+    let ulp_bit;
+    if overflowed {
+        has_trailing_one |= half_ulp_bit;
+        half_ulp_bit = x.signif.bit(0);
+        ulp_bit = x.signif.bit(1);
+    } else {
+        ulp_bit = x.signif.bit(0);
+    }
+
+    if half_ulp_bit && (ulp_bit || has_trailing_one) {
+        x.signif += 1 << overflowed as u8;
+    }
+    x.normalise(true);
+}
+
+fn unsigned_sub(x: &mut Float, y: &Float, op: Operation) {
+    debug_assert!(can_use_unsigned_sub(x, y, op));
+
+    let diff = x.exp.saturating_sub(y.exp) as u64;
+    let diff = cmp::min(diff, u32::MAX as u64) as u32;
+    if diff <= x.prec + 2 {
+        x.exp = y.exp;
+        // FIXME(#14)
+        x.signif <<= diff as usize;
+        x.signif -= &y.signif;
+        if x.signif.sign() < 0 {
+            x.signif.negate();
+            x.sign = -x.sign;
+        }
+        let shift = x.signif.bit_length() as i64 - x.prec as i64;
+        if shift > 0 {
+            x.exp = x.exp.saturating_add(shift);
+            let shift = shift as u32;
+            let ulp_bit = x.signif.bit(shift);
+            let half_ulp_bit = x.signif.bit(shift - 1);
+            let has_trailing_ones = x.signif.trailing_zeros() < shift - 1;
+
+            x.signif >>= shift as usize;
+
+            let round = half_ulp_bit && (ulp_bit || has_trailing_ones);
+            if round {
+                x.signif += 1;
+            }
+        }
+    }
+    x.normalise(true);
+}
+
 impl Add<Float> for Float {
     type Output = Float;
     fn add(mut self, mut other: Float) -> Float {
@@ -29,111 +118,79 @@ impl Add<Float> for Float {
         let prec = self.prec;
 
         match (self.style, other.style) {
-            (Style::NaN, _) | (_, Style::NaN) => Float::nan(prec),
+            (Style::NaN, _) | (_, Style::NaN) => self = Float::nan(prec),
             (Style::Infinity, Style::Infinity) => {
-                if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
+                self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
             }
-            (Style::Infinity, _) => Float::inf(prec, self.sign),
-            (_, Style::Infinity) => Float::inf(prec, other.sign),
-            (Style::Zero, _) => other,
-            (_, Style::Zero) => self,
+            (Style::Infinity, _) => self = Float::inf(prec, self.sign),
+            (_, Style::Infinity) => self = Float::inf(prec, other.sign),
+            (Style::Zero, _) => self = other,
+            (_, Style::Zero) => {}
             (Style::Normal, Style::Normal) => {
                 if self.exp < other.exp {
                     mem::swap(&mut self, &mut other);
                 }
 
-                let s1 = self.sign;
-                let s2 = other.sign;
-                let s = s1 ^ s2;
-
-                self.signif <<= 3;
-                other.signif <<= 3;
-
-                // FIXME (#2): integer types are wrong here
-                let shift = self.exp.saturating_sub(other.exp) as usize;
-                let middle_case = (other.signif.trailing_zeros() as usize) < shift;
-                other.signif >>= shift;
-                if shift <= 3 {
-                    // nothing
-                } else if shift >= prec as usize + 3 {
-                    other.signif |= 1;
+                if self.sign == other.sign {
+                    unsigned_add(&mut other, &self, Operation::Add);
+                    self = other;
                 } else {
-                    other.signif |= middle_case as i32;
-                };
-                if s == Sign::Pos {
-                    self.signif += other.signif;
-                } else {
-                    self.signif -= other.signif;
+                    unsigned_sub(&mut self, &other, Operation::Add);
                 }
-
-                if self.signif == 0 {
-                    // FIXME (#3): should this always return +0.0?
-                    return Float::zero(prec);
-                }
-                self.sign = if self.signif < 0 {
-                    self.signif = self.signif.abs();
-                    -s1
-                } else {
-                    s1
-                };
-
-                let bits = self.signif.bit_length();
-                let round = if bits > prec + 3 {
-                    // carried
-                    self.exp += 1;
-
-                    let ulp_bit = self.signif.bit(4);
-                    let half_ulp_bit = self.signif.bit(3);
-                    let has_trailing_one = self.signif.bit(2) | self.signif.bit(1) | self.signif.bit(0);
-                    self.signif >>= 4;
-                    half_ulp_bit && (ulp_bit || has_trailing_one)
-                } else if bits == prec + 3 {
-                    let ulp_bit = self.signif.bit(3);
-                    let half_ulp_bit = self.signif.bit(2);
-                    let has_trailing_one = self.signif.bit(1) | self.signif.bit(0);
-                    self.signif >>= 3;
-                    half_ulp_bit && (ulp_bit || has_trailing_one)
-                } else {
-                    let refill = prec + 3 - bits;
-                    self.exp = self.exp.saturating_sub(refill as i64);
-                    if refill <= 3 {
-                        let b0 = self.signif.bit(0);
-                        let b1 = self.signif.bit(1);
-                        let b2 = self.signif.bit(2);
-
-                        self.signif >>= (3 - refill) as usize;
-
-                        if refill == 1 { b1 && (b2 || b0) } else if refill == 2 { b0 && b1 } else { false }
-                    } else {
-                        self.signif <<= (refill - 3) as usize;
-                        false
-                    }
-                };
-                if round {
-                    self.signif += 1;
-                }
-                self.normalise(true);
-                self
             }
         }
+        self
     }
 }
 impl<'a> Add<&'a Float> for Float {
     type Output = Float;
-    fn add(self, other: &'a Float) -> Float {
-        self + other.clone()
+    fn add(mut self, other: &'a Float) -> Float {
+        self.debug_assert_valid();
+        other.debug_assert_valid();
+        assert_eq!(self.prec, other.prec);
+        let prec = self.prec;
+
+        match (self.style, other.style) {
+            (Style::NaN, _) | (_, Style::NaN) => self = Float::nan(prec),
+            (Style::Infinity, Style::Infinity) => {
+                self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
+            }
+            (Style::Infinity, _) => self = Float::inf(prec, self.sign),
+            (_, Style::Infinity) => self = Float::inf(prec, other.sign),
+            (Style::Zero, _) => {
+                self.clone_from(other);
+            }
+            (_, Style::Zero) => {},
+            (Style::Normal, Style::Normal) => {
+                if can_use_unsigned_add(&self, other, Operation::Add) {
+                    unsigned_add(&mut self, other, Operation::Add);
+                } else if can_use_unsigned_sub(&self, other, Operation::Add) {
+                    unsigned_sub(&mut self, other, Operation::Add);
+                } else {
+                    // FIXME(#15)
+                    self += other.clone()
+                }
+            }
+        }
+        self
     }
 }
 impl<'a> Add<Float> for &'a Float {
     type Output = Float;
     fn add(self, other: Float) -> Float {
-        self.clone() + other
+        other + self
     }
 }
 impl<'a> Add<&'a Float> for &'a Float {
     type Output = Float;
     fn add(self, other: &'a Float) -> Float {
-        self.clone() + other.clone()
+        let clone_self = can_use_unsigned_op(self, other, Operation::Add);
+
+        if clone_self {
+            self.clone() + other
+        } else {
+            other.clone() + self
+        }
     }
 }
 
@@ -159,19 +216,24 @@ impl Sub<Float> for Float {
 impl<'a> Sub<&'a Float> for Float {
     type Output = Float;
     fn sub(self, other: &'a Float) -> Float {
-        self - other.clone()
+        -(-self + other)
     }
 }
 impl<'a> Sub<Float> for &'a Float {
     type Output = Float;
     fn sub(self, other: Float) -> Float {
-        self.clone() - other
+        -other + self
     }
 }
 impl<'a> Sub<&'a Float> for &'a Float {
     type Output = Float;
     fn sub(self, other: &'a Float) -> Float {
-        self.clone() - other.clone()
+        let clone_self = can_use_unsigned_op(self, other, Operation::Sub);
+        if clone_self {
+            self.clone() - other
+        } else {
+            -(other.clone() - self)
+        }
     }
 }
 

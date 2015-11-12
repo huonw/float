@@ -233,7 +233,12 @@ impl Float {
     }
     fn normalise(&mut self, check_bits: bool) {
         let diff = if check_bits {
-            self.signif.bit_length() as i64 - self.prec as i64
+            let bits = self.signif.bit_length() as i64;
+            if self.signif == 0 {
+                *self = Float::zero_(self.prec, self.sign);
+                return
+            }
+            bits - self.prec as i64
         } else {
             0
         };
