@@ -1,6 +1,6 @@
 use {Style, Float};
 
-use std::{cmp, mem, u32};
+use std::{cmp, u32};
 use std::ops::{Add, AddAssign, Sub, SubAssign,
                Neg};
 
@@ -109,76 +109,92 @@ fn unsigned_sub(x: &mut Float, y: &Float, op: Operation) {
     x.normalise(true);
 }
 
-impl Add<Float> for Float {
-    type Output = Float;
-    fn add(mut self, mut other: Float) -> Float {
+impl AddAssign<Float> for Float {
+    fn add_assign(&mut self, mut other: Float) {
         self.debug_assert_valid();
         other.debug_assert_valid();
         assert_eq!(self.prec, other.prec);
         let prec = self.prec;
 
         match (self.style, other.style) {
-            (Style::NaN, _) | (_, Style::NaN) => self = Float::nan(prec),
+            (Style::NaN, _) | (_, Style::NaN) => *self = Float::nan(prec),
             (Style::Infinity, Style::Infinity) => {
-                self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
+                *self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
             }
-            (Style::Infinity, _) => self = Float::inf(prec, self.sign),
-            (_, Style::Infinity) => self = Float::inf(prec, other.sign),
-            (Style::Zero, _) => self = other,
+            (Style::Infinity, _) => *self = Float::inf(prec, self.sign),
+            (_, Style::Infinity) => *self = Float::inf(prec, other.sign),
+            (Style::Zero, _) => *self = other,
             (_, Style::Zero) => {}
             (Style::Normal, Style::Normal) => {
-                if self.exp < other.exp {
-                    mem::swap(&mut self, &mut other);
-                }
-
-                if self.sign == other.sign {
-                    unsigned_add(&mut other, &self, Operation::Add);
-                    self = other;
+                if can_use_unsigned_add(self, &other, Operation::Add) {
+                    unsigned_add(self, &other, Operation::Add)
+                } else if can_use_unsigned_sub(self, &other, Operation::Add) {
+                    unsigned_sub(self, &other, Operation::Add)
                 } else {
-                    unsigned_sub(&mut self, &other, Operation::Add);
+                    if can_use_unsigned_add(&other, self, Operation::Add) {
+                        unsigned_add(&mut other, self, Operation::Add)
+                    } else {
+                        unsigned_sub(&mut other, self, Operation::Add)
+                    }
+                    *self = other;
                 }
             }
         }
-        self
     }
 }
-impl<'a> Add<&'a Float> for Float {
-    type Output = Float;
-    fn add(mut self, other: &'a Float) -> Float {
+impl<'a> AddAssign<&'a Float> for Float {
+    fn add_assign(&mut self, other: &'a Float) {
         self.debug_assert_valid();
         other.debug_assert_valid();
         assert_eq!(self.prec, other.prec);
         let prec = self.prec;
 
         match (self.style, other.style) {
-            (Style::NaN, _) | (_, Style::NaN) => self = Float::nan(prec),
+            (Style::NaN, _) | (_, Style::NaN) => *self = Float::nan(prec),
             (Style::Infinity, Style::Infinity) => {
-                self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
+                *self = if self.sign == other.sign { Float::inf(prec, self.sign) } else { Float::nan(prec) }
             }
-            (Style::Infinity, _) => self = Float::inf(prec, self.sign),
-            (_, Style::Infinity) => self = Float::inf(prec, other.sign),
+            (Style::Infinity, _) => *self = Float::inf(prec, self.sign),
+            (_, Style::Infinity) => *self = Float::inf(prec, other.sign),
             (Style::Zero, _) => {
                 self.clone_from(other);
             }
             (_, Style::Zero) => {},
             (Style::Normal, Style::Normal) => {
-                if can_use_unsigned_add(&self, other, Operation::Add) {
-                    unsigned_add(&mut self, other, Operation::Add);
-                } else if can_use_unsigned_sub(&self, other, Operation::Add) {
-                    unsigned_sub(&mut self, other, Operation::Add);
+                if can_use_unsigned_add(self, other, Operation::Add) {
+                    unsigned_add(self, other, Operation::Add);
+                } else if can_use_unsigned_sub(self, other, Operation::Add) {
+                    unsigned_sub(self, other, Operation::Add);
                 } else {
                     // FIXME(#15)
-                    self += other.clone()
+                    *self += other.clone()
                 }
             }
         }
+    }
+}
+
+impl Add<Float> for Float {
+    type Output = Float;
+    fn add(mut self, other: Float) -> Float {
+        self += other;
         self
     }
 }
+
+impl<'a> Add<&'a Float> for Float {
+    type Output = Float;
+    fn add(mut self, other: &'a Float) -> Float {
+        self += other;
+        self
+    }
+}
+
 impl<'a> Add<Float> for &'a Float {
     type Output = Float;
-    fn add(self, other: Float) -> Float {
-        other + self
+    fn add(self, mut other: Float) -> Float {
+        other += self;
+        other
     }
 }
 impl<'a> Add<&'a Float> for &'a Float {
@@ -194,35 +210,41 @@ impl<'a> Add<&'a Float> for &'a Float {
     }
 }
 
-impl AddAssign<Float> for Float {
-    fn add_assign(&mut self, other: Float) {
-        self.modify(|x| x + other)
+impl SubAssign<Float> for Float {
+    fn sub_assign(&mut self, other: Float) {
+        *self += -other
     }
 }
-impl<'a> AddAssign<&'a Float> for Float {
-    fn add_assign(&mut self, other: &'a Float) {
-        self.modify(|x| x + other)
+impl<'a> SubAssign<&'a Float> for Float {
+    fn sub_assign(&mut self, other: &'a Float) {
+        // self - other == -(-self + other)
+        self.negate();
+        *self += other;
+        self.negate();
     }
 }
 
 impl Sub<Float> for Float {
     type Output = Float;
 
-    fn sub(self, mut other: Float) -> Float {
-        other = -other;
-        self + other
+    fn sub(mut self, other: Float) -> Float {
+        self += -other;
+        self
     }
 }
 impl<'a> Sub<&'a Float> for Float {
     type Output = Float;
-    fn sub(self, other: &'a Float) -> Float {
-        -(-self + other)
+    fn sub(mut self, other: &'a Float) -> Float {
+        self -= other;
+        self
     }
 }
 impl<'a> Sub<Float> for &'a Float {
     type Output = Float;
-    fn sub(self, other: Float) -> Float {
-        -other + self
+    fn sub(self, mut other: Float) -> Float {
+        other -= self;
+        other.negate();
+        other
     }
 }
 impl<'a> Sub<&'a Float> for &'a Float {
@@ -234,16 +256,5 @@ impl<'a> Sub<&'a Float> for &'a Float {
         } else {
             -(other.clone() - self)
         }
-    }
-}
-
-impl SubAssign<Float> for Float {
-    fn sub_assign(&mut self, other: Float) {
-        self.modify(|x| x - other)
-    }
-}
-impl<'a> SubAssign<&'a Float> for Float {
-    fn sub_assign(&mut self, other: &'a Float) {
-        self.modify(|x| x - other)
     }
 }

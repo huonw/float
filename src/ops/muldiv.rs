@@ -4,27 +4,25 @@ use std::ops::{Mul, MulAssign, Div, DivAssign};
 
 use ramp::ll::limb::Limb;
 
-impl<'a> Mul<&'a Float> for Float {
-    type Output = Float;
-
-    fn mul(mut self, other: &'a Float) -> Float {
+impl<'a> MulAssign<&'a Float> for Float {
+    fn mul_assign(&mut self, other: &'a Float) {
         self.debug_assert_valid();
         other.debug_assert_valid();
         assert_eq!(self.prec, other.prec);
         let prec = self.prec;
 
         match (self.style, other.style) {
-            (Style::NaN, _) | (_, Style::NaN) => Float::nan(prec),
+            (Style::NaN, _) | (_, Style::NaN) => *self = Float::nan(prec),
             // 0.0 * inf, inf * 0.0 are NaN
             (Style::Infinity, Style::Zero) | (Style::Zero, Style::Infinity) => {
-                Float::nan(prec)
+                *self = Float::nan(prec)
             }
             (Style::Infinity, _) | (_, Style::Infinity) => {
-                Float::inf(prec, self.sign ^ other.sign)
+                *self = Float::inf(prec, self.sign ^ other.sign)
             }
             (Style::Zero, _) | (_, Style::Zero) => {
                 // FIXME (#3): need to get the right sign
-                Float::zero_(prec, Sign::Pos)
+                *self = Float::zero_(prec, Sign::Pos)
             }
             (Style::Normal, Style::Normal) => {
                 self.signif *= &other.signif;
@@ -58,29 +56,44 @@ impl<'a> Mul<&'a Float> for Float {
                     }
                     self.normalise(true);
                 }
-
-                self
             }
         }
+    }
+}
+
+impl MulAssign<Float> for Float {
+    fn mul_assign(&mut self, other: Float) {
+        *self *= &other
     }
 }
 
 impl Mul<Float> for Float {
     type Output = Float;
 
-    fn mul(self, other: Float) -> Float {
+    fn mul(mut self, other: Float) -> Float {
         // FIXME (#6): this could/should decide to use the Normal one
         // with the largest backing storage as the by-value arg
         // (i.e. reuse the biggest allocation)
-        self * &other
+        self *= other;
+        self
+    }
+}
+
+impl<'a> Mul<&'a Float> for Float {
+    type Output = Float;
+
+    fn mul(mut self, other: &'a Float) -> Float {
+        self *= other;
+        self
     }
 }
 
 impl<'a> Mul<Float> for &'a Float {
     type Output = Float;
 
-    fn mul(self, other: Float) -> Float {
-        other * self
+    fn mul(self, mut other: Float) -> Float {
+        other *= self;
+        other
     }
 }
 
@@ -94,44 +107,29 @@ impl<'a> Mul<&'a Float> for &'a Float {
     }
 }
 
-impl MulAssign<Float> for Float {
-    fn mul_assign(&mut self, other: Float) {
-        self.modify(|x| x * other)
-    }
-}
-
-impl<'a> MulAssign<&'a Float> for Float {
-    fn mul_assign(&mut self, other: &'a Float) {
-        self.modify(|x| x * other)
-    }
-}
-
-impl<'a> Div<&'a Float> for Float {
-    type Output = Float;
-
-    fn div(mut self, other: &'a Float) -> Float {
+impl<'a> DivAssign<&'a Float> for Float {
+    fn div_assign(&mut self, other: &'a Float) {
         self.debug_assert_valid();
         other.debug_assert_valid();
         assert_eq!(self.prec, other.prec);
         let prec = self.prec;
 
         match (self.style, other.style) {
-            (Style::NaN, _) | (_, Style::NaN) => Float::nan(prec),
+            (Style::NaN, _) | (_, Style::NaN) => *self = Float::nan(prec),
             // 0.0 / 0.0 is NaN
-            (Style::Zero, Style::Zero) => Float::nan(prec),
+            (Style::Zero, Style::Zero) => *self = Float::nan(prec),
             // 0.0 / x == 0.0
-            (Style::Zero, _) => Float::zero_(prec, self.sign),
+            (Style::Zero, _) => *self = Float::zero_(prec, self.sign),
             // x / 0.0 == inf
-            (_, Style::Zero) => Float::inf(prec, other.sign),
+            (_, Style::Zero) => *self = Float::inf(prec, other.sign),
             (Style::Infinity, Style::Infinity) => {
-                Float::nan(prec)
+                *self = Float::nan(prec)
             }
             // x / inf == 0.0
-            (_, Style::Infinity) => Float::zero_(prec, other.sign),
+            (_, Style::Infinity) => *self = Float::zero_(prec, other.sign),
             // inf / x == inf (x != 0)
             (Style::Infinity, _) => {
                 self.sign = self.sign ^ other.sign;
-                self
             }
             (Style::Normal, Style::Normal) => {
                 let (raw_mult_exp, o1) = sub_overflow(self.exp, other.exp);
@@ -178,17 +176,31 @@ impl<'a> Div<&'a Float> for Float {
                     }
                     self.normalise(true);
                 }
-                self
             }
         }
     }
 }
 
+
+impl DivAssign<Float> for Float {
+    fn div_assign(&mut self, other: Float) {
+        *self /= &other;
+    }
+}
 impl Div<Float> for Float {
     type Output = Float;
 
-    fn div(self, other: Float) -> Float {
-        self / &other
+    fn div(mut self, other: Float) -> Float {
+        self /= &other;
+        self
+    }
+}
+impl<'a> Div<&'a Float> for Float {
+    type Output = Float;
+
+    fn div(mut self, other: &'a Float) -> Float {
+        self /= other;
+        self
     }
 }
 impl<'a> Div<Float> for &'a Float {
@@ -203,16 +215,5 @@ impl<'a> Div<&'a Float> for &'a Float {
 
     fn div(self, other: &'a Float) -> Float {
         self.clone() / other
-    }
-}
-
-impl DivAssign<Float> for Float {
-    fn div_assign(&mut self, other: Float) {
-        self.modify(|x| x / other)
-    }
-}
-impl<'a> DivAssign<&'a Float> for Float {
-    fn div_assign(&mut self, other: &'a Float) {
-        self.modify(|x| x / other)
     }
 }

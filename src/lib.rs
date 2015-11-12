@@ -7,7 +7,7 @@ extern crate ieee754;
 extern crate rand;
 
 use ramp::Int;
-use std::{fmt, i64, mem};
+use std::{fmt, i64};
 
 mod ops;
 
@@ -160,6 +160,9 @@ impl Float {
             Some(self.sign)
         }
     }
+    pub fn negate(&mut self) {
+        self.sign = -self.sign;
+    }
     pub fn precision(&self) -> u32 {
         self.debug_assert_valid();
         self.prec
@@ -206,13 +209,6 @@ impl Float {
         self
     }
 
-    fn modify<F: FnOnce(Float) -> Float>(&mut self, f: F) {
-        self.debug_assert_valid();
-        let p = self.prec;
-        let val = mem::replace(self, Float::nan(p));
-        *self = f(val);
-        self.debug_assert_valid();
-    }
     fn zero_(p: u32, sign: Sign) -> Float {
         Float {
             prec: p,
