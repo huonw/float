@@ -24,7 +24,6 @@ enum Style {
     // to -2**63 + 1, which is somewhat small.
 }
 
-#[derive(Clone)]
 pub struct Float {
     prec: u32,
     sign: Sign,
@@ -32,6 +31,23 @@ pub struct Float {
     signif: Int,
     style: Style
 }
+
+impl Clone for Float {
+    fn clone(&self) -> Float {
+        let mut x = Float::zero(0);
+        x.clone_from(self);
+        x
+    }
+    fn clone_from(&mut self, other: &Float) {
+        other.debug_assert_valid();
+        self.prec = other.prec;
+        self.sign = other.sign;
+        self.exp = other.exp;
+        self.signif.clone_from(&other.signif);
+        self.style = other.style;
+    }
+}
+
 impl fmt::Debug for Float {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.debug_assert_valid();
